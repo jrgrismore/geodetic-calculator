@@ -617,7 +617,17 @@ function parseCoords(s) {
     return validate(lat, lon);
   }
 
-  /* 6. Signed decimal with degree symbol  51.5074° -0.1278° */
+  /* 6. Apple Maps format  36.72340° N, 95.95327° W */
+  m = s.match(/(\d{1,3}\.?\d*)°?\s*([NS])[,\s]+(\d{1,3}\.?\d*)°?\s*([EW])/i);
+  if (m) {
+    let lat = +m[1];
+    let lon = +m[3];
+    if (m[2].toUpperCase() === 'S') lat = -lat;
+    if (m[4].toUpperCase() === 'W') lon = -lon;
+    return validate(lat, lon);
+  }
+
+  /* 7. Signed decimal with degree symbol  51.5074° -0.1278° */
   m = s.match(/(-?\d{1,3}\.?\d*)[°\s]+(-?\d{1,3}\.?\d*)°?/);
   if (m) return validate(+m[1], +m[2]);
 
