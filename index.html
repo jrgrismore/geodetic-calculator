@@ -202,6 +202,20 @@
   .compass-wrap { display: flex; justify-content: center; padding: 1.5rem 0 0.5rem; }
   .method-note { font-size: 11px; color: var(--hint); text-align: center; margin-top: 8px; font-family: var(--mono); }
 
+  /* GPS accuracy selector */
+  .gps-accuracy-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 14px;
+  }
+  .gps-accuracy-row label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .gps-accuracy-row select {
+    flex: 1; font-family: var(--font); font-size: 12px; padding: 5px 8px;
+    border: 1px solid var(--border-md); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text); outline: none;
+    appearance: none; -webkit-appearance: none;
+  }
+
   @media (min-width: 480px) {
     main { padding: 2rem 1.5rem 4rem; }
     header { padding: 1.5rem 2rem; }
@@ -305,6 +319,15 @@
     <div class="paste-hint" id="paste2-hint"></div>
   </div>
 
+  <div class="gps-accuracy-row">
+    <label for="gps-accuracy">GPS accuracy</label>
+    <select id="gps-accuracy">
+      <option value="3">Good -- clear sky (~3 m)</option>
+      <option value="8" selected>Typical -- some obstruction (~8 m)</option>
+      <option value="20">Poor -- urban / tree cover (~20 m)</option>
+    </select>
+  </div>
+
   <button class="calc-btn" onclick="calculate()">Calculate</button>
 
   <div class="error" id="error-msg"></div>
@@ -346,6 +369,7 @@
       <canvas id="compass" width="220" height="220"></canvas>
     </div>
     <p class="method-note" id="method-note"></p>
+    <p class="method-note" id="bearing-error-note" style="display:none; margin-top:4px;"></p>
   </div>
 </main>
 
@@ -539,16 +563,18 @@ function setActiveSource(point, source) {
 /* =====================================================================
    Paste / smart coordinate parser
 ===================================================================== */
+const parsedCoords = { 1: null, 2: null }; // stores coords from paste, keyed by point
+
 function handlePaste(point, raw) {
   const hintEl = document.getElementById(`paste${point}-hint`);
   const result = parseCoords(raw.trim());
   if (!result) {
+    parsedCoords[point] = null;
     hintEl.style.color = 'var(--hint)';
     hintEl.textContent = raw.length > 4 ? 'Format not recognised -- keep typing or try a different format.' : '';
     return;
   }
-  document.getElementById(`lat${point}`).value = result.lat.toFixed(7);
-  document.getElementById(`lon${point}`).value = result.lon.toFixed(7);
+  parsedCoords[point] = result; // store without touching manual fields
   hintEl.style.color = 'var(--ok)';
   hintEl.textContent = `Parsed: ${result.lat.toFixed(6)}, ${result.lon.toFixed(6)}`;
   setActiveSource(point, 'paste');
@@ -625,12 +651,26 @@ function fmt(n, dec) {
 }
 
 function calculate() {
-  const lat1 = parseFloat(document.getElementById('lat1').value.trim());
-  const lon1 = parseFloat(document.getElementById('lon1').value.trim());
-  const lat2 = parseFloat(document.getElementById('lat2').value.trim());
-  const lon2 = parseFloat(document.getElementById('lon2').value.trim());
   const errEl = document.getElementById('error-msg');
   const resEl = document.getElementById('results');
+  errEl.classList.remove('show');
+
+  function getCoordsForPoint(point) {
+    const paste = document.getElementById(`paste${point}`);
+    if (parsedCoords[point] && paste.classList.contains('source-active')) {
+      return parsedCoords[point];
+    }
+    const lat = parseFloat(document.getElementById(`lat${point}`).value.trim());
+    const lon = parseFloat(document.getElementById(`lon${point}`).value.trim());
+    return (isNaN(lat) || isNaN(lon)) ? null : { lat, lon };
+  }
+
+  const p1 = getCoordsForPoint(1);
+  const p2 = getCoordsForPoint(2);
+  const lat1 = p1 ? p1.lat : NaN;
+  const lon1 = p1 ? p1.lon : NaN;
+  const lat2 = p2 ? p2.lat : NaN;
+  const lon2 = p2 ? p2.lon : NaN;
   errEl.classList.remove('show');
 
   if ([lat1,lon1,lat2,lon2].some(isNaN)) {
@@ -669,6 +709,27 @@ function calculate() {
 
   document.getElementById('method-note').textContent =
     `Vincenty 1975 · WGS-84 · ${result.iterations} iterations · ±0.5 mm accuracy`;
+
+  // Bearing error estimate based on GPS coordinate uncertainty
+  const gpsR = parseFloat(document.getElementById('gps-accuracy').value);
+  const bearingErrDeg = d > 0
+    ? (180 / Math.PI) * Math.atan(2 * gpsR / d)
+    : null;
+  const errNoteEl = document.getElementById('bearing-error-note');
+  if (bearingErrDeg !== null) {
+    let errStr;
+    if (bearingErrDeg >= 1) {
+      errStr = bearingErrDeg.toFixed(1) + '°';
+    } else if (bearingErrDeg >= 0.01) {
+      errStr = bearingErrDeg.toFixed(2) + '°';
+    } else {
+      errStr = '< 0.01°';
+    }
+    errNoteEl.textContent = `Bearing error est. ± ${errStr} (GPS ± ${gpsR} m both points)`;
+    errNoteEl.style.display = 'block';
+  } else {
+    errNoteEl.style.display = 'none';
+  }
 
   drawCompass(fwd, rev);
   resEl.classList.add('show');
@@ -763,6 +824,7 @@ document.querySelectorAll('#lat1, #lon1, #lat2, #lon2').forEach(el => {
     }
     if (v !== el.value) el.value = v;
     const point = el.id.slice(-1); // '1' or '2'
+    parsedCoords[point] = null;
     setActiveSource(point, 'manual');
   });
 });
