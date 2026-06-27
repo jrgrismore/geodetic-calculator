@@ -365,6 +365,18 @@
       </div>
     </div>
 
+    <div class="section-label">Rotation to true north</div>
+    <div class="dist-table">
+      <div class="dist-row">
+        <span class="dl">From forward bearing</span>
+        <span class="dv" id="r-rotation"></span>
+      </div>
+      <div class="dist-row" style="font-size:11px; color:var(--muted);">
+        <span class="dl">Convention</span>
+        <span class="dv">− counterclockwise &nbsp;+ clockwise</span>
+      </div>
+    </div>
+
     <div class="compass-wrap">
       <canvas id="compass" width="220" height="220"></canvas>
     </div>
@@ -716,6 +728,12 @@ function calculate() {
   document.getElementById('r-rev-deg').textContent     = rev.toFixed(1) + '°';
   document.getElementById('r-rev-compass').textContent = compassLabel(rev);
   document.getElementById('r-rev-dms').textContent     = toDMS(rev);
+
+  // Rotation to true north: shortest path from forward bearing to 0°
+  let rotation = -fwd;                          // naive: 0 - bearing
+  if (rotation <= -180) rotation += 360;        // normalise to (-180, +180]
+  const rotSign = rotation >= 0 ? '+' : '';
+  document.getElementById('r-rotation').textContent = rotSign + rotation.toFixed(1) + '°';
 
   document.getElementById('method-note').textContent =
     `Vincenty 1975 · WGS-84 · ${result.iterations} iterations · ±0.5 mm accuracy`;
