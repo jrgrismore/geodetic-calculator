@@ -65,15 +65,6 @@
 
   main { max-width: 640px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 
-  /* ---- formula tabs ---- */
-  .method-row { display: flex; gap: 8px; margin-bottom: 14px; }
-  .method-btn {
-    flex: 1; padding: 9px 12px; font-family: var(--font); font-size: 13px; font-weight: 500;
-    border-radius: var(--radius-sm); border: 1px solid var(--border-md);
-    background: var(--bg); color: var(--muted); cursor: pointer; text-align: center; transition: all 0.15s;
-  }
-  .method-btn.active { background: var(--surface); border-color: var(--accent); color: var(--text); }
-
   /* ---- shared-pin banner (only shown when handed off via Maps share sheet) ---- */
   .pin-banner {
     display: none;
@@ -142,6 +133,12 @@
   .paste-input:focus { border-color: var(--accent2); }
   .paste-input::placeholder { color: var(--hint); font-size: 12px; }
   .paste-hint { font-size: 11px; color: var(--hint); margin-top: 4px; line-height: 1.4; }
+
+  /* active-source highlighting */
+  .field-grid.source-active .field input { border-color: var(--accent); }
+  .field-grid.source-inactive .field input { opacity: 0.45; }
+  .paste-input.source-active { border-color: var(--accent2); background: var(--ok-bg); }
+  .paste-input.source-inactive { opacity: 0.45; }
 
   /* gps status pill */
   .gps-status {
@@ -229,11 +226,6 @@
 </header>
 
 <main>
-
-  <div class="method-row">
-    <button class="method-btn active" id="tab-vincenty" onclick="setMethod('vincenty')">Vincenty (1975)</button>
-    <button class="method-btn" id="tab-karney" onclick="setMethod('karney')">Karney (2013)</button>
-  </div>
 
   <div class="pin-banner" id="pin-banner">
     <div class="pin-banner-text">
@@ -326,7 +318,7 @@
       <div class="dist-row"><span class="dl">Nautical miles</span><span class="dv" id="r-nm"></span></div>
     </div>
 
-    <div class="section-label">Bearings — true north</div>
+    <div class="section-label">Bearings -- true north</div>
     <div class="bearing-card">
       <div class="bearing-row">
         <div>
@@ -365,13 +357,11 @@ const WGS84_A = 6378137.0;
 const WGS84_F = 1 / 298.257223563;
 const WGS84_B = WGS84_A * (1 - WGS84_F);
 
-let currentMethod = 'vincenty';
-
 /* =====================================================================
-   Handoff data — from Apple Shortcuts (or any external caller)
+   Handoff data -- from Apple Shortcuts (or any external caller)
    URL params:
-     device_lat, device_lon   — current device location, captured natively
-     pin_lat,    pin_lon      — a Maps pin shared in via Share Sheet (optional)
+     device_lat, device_lon   -- current device location, captured natively
+     pin_lat,    pin_lon      -- a Maps pin shared in via Share Sheet (optional)
    Neither pre-fills any field. They're only used when the user taps
    "Use my location" or a future "Use shared pin" control.
 ===================================================================== */
@@ -391,12 +381,6 @@ const handoff = (() => {
     pinLabel:  p.get('pin_label') || null,
   };
 })();
-
-function setMethod(m) {
-  currentMethod = m;
-  document.getElementById('tab-vincenty').classList.toggle('active', m === 'vincenty');
-  document.getElementById('tab-karney').classList.toggle('active', m === 'karney');
-}
 
 const toRad = d => d * Math.PI / 180;
 const toDeg = r => r * 180 / Math.PI;
@@ -428,7 +412,7 @@ function vincenty(lat1, lon1, lat2, lon2) {
     λ = L + (1-C)*f*sinα*(σ + C*sinσ*(cos2σm + C*cosσ*(-1 + 2*cos2σm*cos2σm)));
     iter++;
   } while (Math.abs(λ - λPrev) > 1e-12 && iter < 200);
-  if (iter >= 200) return { error: 'Vincenty did not converge — likely near-antipodal points. Try Karney.' };
+  if (iter >= 200) return { error: 'Vincenty did not converge -- points are near-antipodal. Enter coordinates manually.' };
   const uSq = cosSqα*(a*a - b*b)/(b*b);
   const A2 = 1 + uSq/16384*(4096 + uSq*(-768 + uSq*(320 - 175*uSq)));
   const B2 = uSq/1024*(256 + uSq*(-128 + uSq*(74 - 47*uSq)));
@@ -441,55 +425,13 @@ function vincenty(lat1, lon1, lat2, lon2) {
 }
 
 /* =====================================================================
-   Karney inverse
-===================================================================== */
-function karney(lat1, lon1, lat2, lon2) {
-  const a = WGS84_A, f = WGS84_F, b = WGS84_B;
-  const φ1 = toRad(lat1), φ2 = toRad(lat2);
-  const L = toRad(lon2 - lon1);
-  const β1 = Math.atan2((1-f)*Math.sin(φ1), Math.cos(φ1));
-  const β2 = Math.atan2((1-f)*Math.sin(φ2), Math.cos(φ2));
-  const sinβ1 = Math.sin(β1), cosβ1 = Math.cos(β1);
-  const sinβ2 = Math.sin(β2), cosβ2 = Math.cos(β2);
-  let ω12 = L;
-  let α1 = Math.atan2(cosβ2*Math.sin(ω12), cosβ1*sinβ2 - sinβ1*cosβ2*Math.cos(ω12));
-  for (let i = 0; i < 20; i++) {
-    const sinα1 = Math.sin(α1), cosα1 = Math.cos(α1);
-    const sinα0 = sinα1*cosβ1;
-    const cosSqα0 = 1 - sinα0*sinα0;
-    const k2 = (a*a - b*b)/(b*b)*cosSqα0;
-    const sqrtk2 = Math.sqrt(1 + k2);
-    const ε = (sqrtk2 - 1)/(sqrtk2 + 1);
-    const ε2 = ε*ε;
-    const A1 = 1/(1-ε)*(1 + ε2/4*(1 + ε2/4*(1 + ε2/4)));
-    const C1a = -ε/2 + 3*ε2/16, C1b = -ε2/16;
-    const I1 = s => A1*(s + C1a*Math.sin(2*s) + C1b*Math.sin(4*s));
-    const σ1 = Math.atan2(sinβ1, cosα1*cosβ1);
-    const sinσ12 = Math.sqrt(Math.pow(cosβ1*sinβ2 - sinβ1*cosβ2*Math.cos(ω12),2) + Math.pow(cosβ2*Math.sin(ω12),2));
-    const cosσ12 = sinβ1*sinβ2 + cosβ1*cosβ2*Math.cos(ω12);
-    const σ12 = Math.atan2(sinσ12, cosσ12);
-    const dist = b*(I1(σ1 + σ12) - I1(σ1));
-    const J12 = σ12 + C1a*(Math.sin(2*(σ1+σ12)) - Math.sin(2*σ1)) + C1b*(Math.sin(4*(σ1+σ12)) - Math.sin(4*σ1));
-    const λ12 = ω12 - f*sinα0*J12;
-    const diff = λ12 - L;
-    if (Math.abs(diff) < 1e-13) {
-      const sinα2 = sinα0/cosβ2;
-      const cosα2 = Math.sqrt(Math.max(0, 1 - sinα2*sinα2));
-      return { distance: dist, fwd: (toDeg(α1)+360)%360, rev: (toDeg(Math.atan2(sinα2,-cosα2))+360)%360 };
-    }
-    α1 -= diff*0.7;
-  }
-  return vincenty(lat1, lon1, lat2, lon2);
-}
-
-/* =====================================================================
    GPS / device location
 ===================================================================== */
 function useMyLocation(point) {
   const btn    = document.getElementById(`gps${point}-btn`);
   const status = document.getElementById(`gps${point}-status`);
 
-  // Browser Geolocation unavailable (e.g. offline file:// page) — fall back
+  // Browser Geolocation unavailable (e.g. offline file:// page) -- fall back
   // to the device location captured natively by the Shortcut, if present.
   if (!navigator.geolocation) {
     if (handoff.deviceLat !== null && handoff.deviceLon !== null) {
@@ -511,13 +453,12 @@ function useMyLocation(point) {
       const acc = pos.coords.accuracy;
       document.getElementById(`lat${point}`).value = lat.toFixed(7);
       document.getElementById(`lon${point}`).value = lon.toFixed(7);
-      document.getElementById(`paste${point}`).value = '';
-      document.getElementById(`paste${point}-hint`).textContent = '';
       showStatus(status, `Location set · accuracy ±${Math.round(acc)} m`, 'ok');
+      setActiveSource(point, 'manual');
       resetGpsBtn(btn, point);
     },
     err => {
-      // Browser GPS failed — fall back to Shortcut-supplied device location if we have it.
+      // Browser GPS failed -- fall back to Shortcut-supplied device location if we have it.
       if (handoff.deviceLat !== null && handoff.deviceLon !== null) {
         fillFromHandoff(point, status);
         resetGpsBtn(btn, point);
@@ -538,13 +479,12 @@ function useMyLocation(point) {
 function fillFromHandoff(point, status) {
   document.getElementById(`lat${point}`).value = handoff.deviceLat.toFixed(7);
   document.getElementById(`lon${point}`).value = handoff.deviceLon.toFixed(7);
-  document.getElementById(`paste${point}`).value = '';
-  document.getElementById(`paste${point}-hint`).textContent = '';
   showStatus(status, 'Location set from device (via Shortcut)', 'ok');
+  setActiveSource(point, 'manual');
 }
 
 /* =====================================================================
-   Shared Maps pin (handed off via Shortcuts + Share Sheet) — optional.
+   Shared Maps pin (handed off via Shortcuts + Share Sheet) -- optional.
    The app works fully standalone; this banner only appears if pin
    coordinates were actually included in the URL.
 ===================================================================== */
@@ -579,6 +519,24 @@ function showStatus(el, msg, type) {
 }
 
 /* =====================================================================
+   Source highlighting -- show which input (manual or paste) was used last
+===================================================================== */
+function setActiveSource(point, source) {
+  // source: 'manual' | 'paste' | null (reset)
+  const grid  = document.querySelector(`#lat${point}`).closest('.field-grid');
+  const paste = document.getElementById(`paste${point}`);
+  grid.classList.remove('source-active', 'source-inactive');
+  paste.classList.remove('source-active', 'source-inactive');
+  if (source === 'manual') {
+    grid.classList.add('source-active');
+    if (paste.value.trim()) paste.classList.add('source-inactive');
+  } else if (source === 'paste') {
+    paste.classList.add('source-active');
+    grid.classList.add('source-inactive');
+  }
+}
+
+/* =====================================================================
    Paste / smart coordinate parser
 ===================================================================== */
 function handlePaste(point, raw) {
@@ -586,13 +544,14 @@ function handlePaste(point, raw) {
   const result = parseCoords(raw.trim());
   if (!result) {
     hintEl.style.color = 'var(--hint)';
-    hintEl.textContent = raw.length > 4 ? 'Format not recognised — keep typing or try a different format.' : '';
+    hintEl.textContent = raw.length > 4 ? 'Format not recognised -- keep typing or try a different format.' : '';
     return;
   }
   document.getElementById(`lat${point}`).value = result.lat.toFixed(7);
   document.getElementById(`lon${point}`).value = result.lon.toFixed(7);
   hintEl.style.color = 'var(--ok)';
   hintEl.textContent = `Parsed: ${result.lat.toFixed(6)}, ${result.lon.toFixed(6)}`;
+  setActiveSource(point, 'paste');
 }
 
 function parseCoords(s) {
@@ -687,9 +646,7 @@ function calculate() {
     errEl.classList.add('show'); resEl.classList.remove('show'); return;
   }
 
-  const result = currentMethod === 'vincenty'
-    ? vincenty(lat1, lon1, lat2, lon2)
-    : karney(lat1, lon1, lat2, lon2);
+  const result = vincenty(lat1, lon1, lat2, lon2);
 
   if (result.error) {
     errEl.textContent = result.error;
@@ -710,9 +667,8 @@ function calculate() {
   document.getElementById('r-rev-compass').textContent = compassLabel(rev);
   document.getElementById('r-rev-dms').textContent     = toDMS(rev);
 
-  document.getElementById('method-note').textContent = currentMethod === 'vincenty'
-    ? `Vincenty 1975 · WGS-84 · ${result.iterations} iterations · ±0.5 mm accuracy`
-    : `Karney 2013 · WGS-84 · ±15 nm accuracy`;
+  document.getElementById('method-note').textContent =
+    `Vincenty 1975 · WGS-84 · ${result.iterations} iterations · ±0.5 mm accuracy`;
 
   drawCompass(fwd, rev);
   resEl.classList.add('show');
@@ -806,6 +762,8 @@ document.querySelectorAll('#lat1, #lon1, #lat2, #lon2').forEach(el => {
       v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '');
     }
     if (v !== el.value) el.value = v;
+    const point = el.id.slice(-1); // '1' or '2'
+    setActiveSource(point, 'manual');
   });
 });
 
